@@ -1,0 +1,115 @@
+{
+  "VM_IMAGE": "arcos_latest.qcow2",
+  "SpyderWaitTimer": 200,
+  "VMs": [
+    {
+      "name": "s1",
+      "mac_address": "60:54:00:3a:c2:aa"
+    },
+    {
+      "name": "s2",
+      "mac_address": "60:55:00:3a:c2:ab"
+    },
+    {
+      "name": "l1",
+      "mac_address": "60:56:00:3a:c2:ac"
+    },
+    {
+      "name": "l2",
+      "mac_address": "60:57:00:3a:c2:ad"
+    },
+    {
+      "name": "l3",
+      "mac_address": "60:58:00:3a:c2:ae"
+    },
+    {
+      "name": "h1",
+      "mac_address": "60:59:00:3a:c2:ba"
+    },
+    {
+      "name": "h2",
+      "mac_address": "60:60:00:3a:c2:bb"
+    },
+    {
+      "name": "h3",
+      "mac_address": "60:61:00:3a:c2:bc"
+    },
+    {
+      "name": "h4",
+      "mac_address": "60:62:00:3a:c2:bd"
+    },
+    {
+      "name": "b1",
+      "mac_address": "60:63:00:3a:c2:ca"
+    },
+    {
+      "name": "b2",
+      "mac_address": "60:64:00:3a:c2:cb"
+    },
+    {
+      "name": "b3",
+      "mac_address": "60:65:00:3a:c2:cc"
+    },
+    {
+      "name": "b4",
+      "mac_address": "60:66:00:3a:c2:cd"
+    }
+  ],
+  "InterConnect": [
+    "s1_swp1:l1_swp1",
+    "s1_swp4:l1_swp4",
+    "s1_swp2:l2_swp1",
+    "s1_swp5:l2_swp5",
+    "s1_swp3:l3_swp1",
+    "s1_swp6:l3_swp4",
+    "s2_swp1:l1_swp2",
+    "s2_swp4:l1_swp5",
+    "s2_swp2:l2_swp2",
+    "s2_swp5:l2_swp6",
+    "s2_swp9:l2_swp11",
+    "s2_swp10:l2_swp12",
+    "s2_swp3:l3_swp2",
+    "s2_swp6:l3_swp5",
+    "s2_swp11:l3_swp7",
+    "s1_swp7:s2_swp7",
+    "s1_swp8:s2_swp8",
+    "l1_swp7:l2_swp7",
+    "l1_swp8:l2_swp8",
+    "l1_swp9:l2_swp9",
+    "l1_swp10:l2_swp10",
+    "l2_swp3:l3_swp3",
+    "l1_swp3:h1_swp1",
+    "l1_swp6:h1_swp2",
+    "l2_swp4:h2_swp1",
+    "l3_swp6:h3_swp1",
+    "l1_swp11:h2_swp2",
+    "h1_swp3:h2_swp3",
+    "l2_swp13:h3_swp2",
+    "h3_swp3:h4_swp1",
+    "h3_swp4:h4_swp2",
+    "h3_swp5:h4_swp3",
+    "h1_swp4:s2_swp13",
+    "h2_swp4:s2_swp14",
+    "h1_swp5:h2_swp5",
+    "h2_swp7:s1_swp10",
+    "h2_swp6:h3_swp6",
+    "h1_swp6:h3_swp7",
+    "l1_swp12:h1_swp10",
+    "l1_swp13:h1_swp7",
+    "h1_swp8:s2_swp15",
+    "h1_swp9:s2_swp16",
+    "l1_swp14:h2_swp11",
+    "l1_swp15:h2_swp8",
+    "h2_swp9:s2_swp17",
+    "h2_swp10:s2_swp18"
+  ],
+  "Ixia_connections": [
+    "s1_swp9:ens2f0",
+    "s2_swp12:ens2f1",
+    "s1_swp11:ens2f2"
+  ],
+  "Bridge_connections": [
+     "s2_swp19:b1_swp1:b2_swp1:b3_swp1:b4_swp1"
+  ]
+}
+ 
