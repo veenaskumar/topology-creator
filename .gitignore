@@ -1,2 +1,5 @@
-/virtualenv/
+/virtualenv
+*.pyc
+__pycache__/
 *.png
+*.json

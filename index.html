@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Topology Diagram Generator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .input-section {
+            margin-bottom: 30px;
+        }
+        textarea {
+            width: 100%;
+            height: 200px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-family: monospace;
+            resize: vertical;
+        }
+        button {
+            background: #007acc;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:hover {
+            background: #0056a3;
+        }
+        #topology-canvas {
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            margin-top: 20px;
+            display: block;
+            cursor: crosshair;
+        }
+        .legend {
+            display: flex;
+            gap: 20px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+        }
+        .error {
+            color: red;
+            margin-top: 10px;
+            padding: 10px;
+            background: #ffe6e6;
+            border-radius: 5px;
+        }
+        .info-panel {
+            background: #e8f4f8;
+            border: 1px solid #b3d9e8;
+            border-radius: 5px;
+            padding: 15px;
+            margin-top: 15px;
+            font-size: 14px;
+        }
+        .connection-info {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            border-radius: 5px;
+            padding: 10px;
+            margin-top: 10px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Network Topology Diagram Generator</h1>
+        
+        <div class="input-section">
+            <label for="json-input"><strong>Paste your JSON configuration:</strong></label>
+            <textarea id="json-input" placeholder="Paste your JSON configuration here..."></textarea>
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button onclick="generateTopology()">Generate Topology</button>
+                <button id="download-btn" onclick="downloadTopology()" style="background: #28a745; display: none;">
+                    📥 Download PNG
+                </button>
+            </div>
+            <div id="error-message"></div>
+        </div>
+
+        <canvas id="topology-canvas" width="1200" height="850" style="display:none;"></canvas>
+        
+        <div class="info-panel" id="info-panel" style="display:none;">
+            <h3>💡 How to see port connections:</h3>
+            <p>Click on any <strong>port label</strong> (the numbers around nodes) to see what it connects to. Click again to hide the connection.</p>
+        </div>
+        
+        <div class="connection-info" id="connection-info" style="display:none;"></div>
+        
+        <div class="legend" id="legend" style="display:none;">
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #4A90E2;"></div>
+                <span>Spine Switches (s*)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #50C878;"></div>
+                <span>Leaf Switches (l*)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #FF6B6B;"></div>
+                <span>Hosts (h*)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #FFD93D;"></div>
+                <span>Bridges (b*)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #9B59B6;"></div>
+                <span>IXIA</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #333;"></div>
+                <span>Regular Connections</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #E74C3C;"></div>
+                <span>Bridge Connections</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class TopologyGenerator {
+            constructor() {
+                this.canvas = document.getElementById('topology-canvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.nodes = new Map();
+                this.connections = [];
+                this.ixiaConnections = [];
+                this.bridgeConnections = [];
+                this.labelPositions = new Map();
+                this.selectedPort = null;
+                this.portConnections = new Map();
+                this.generationTime = null; // Store generation time
+                
+                // Add click event listener
+                this.canvas.addEventListener('click', (e) => this.handleCanvasClick(e));
+            }
+
+            generateTopology(jsonData) {
+                try {
+                    this.generationTime = new Date(); // Store generation time
+                    this.parseData(jsonData);
+                    this.calculatePositions();
+                    this.buildPortConnectionMap();
+                    this.draw();
+                    this.canvas.style.display = 'block';
+                    document.getElementById('legend').style.display = 'flex';
+                    document.getElementById('info-panel').style.display = 'block';
+                    document.getElementById('download-btn').style.display = 'inline-block';
+                    document.getElementById('error-message').textContent = '';
+                } catch (error) {
+                    document.getElementById('error-message').innerHTML = 
+                        `<div class="error">Error: ${error.message}</div>`;
+                }
+            }
+
+            parseData(data) {
+                // Clear existing data
+                this.nodes.clear();
+                this.connections = [];
+                this.ixiaConnections = [];
+                this.bridgeConnections = [];
+
+                // Parse VMs
+                data.VMs.forEach(vm => {
+                    this.nodes.set(vm.name, {
+                        name: vm.name,
+                        type: this.getNodeType(vm.name),
+                        macAddress: vm.mac_address || 'N/A',
+                        x: 0,
+                        y: 0,
+                        connections: []
+                    });
+                });
+
+                // Add IXIA node if there are IXIA connections
+                if (data.Ixia_connections && data.Ixia_connections.length > 0) {
+                    this.nodes.set('IXIA', {
+                        name: 'IXIA',
+                        type: 'ixia',
+                        macAddress: 'IXIA Device',
+                        x: 0,
+                        y: 0,
+                        connections: []
+                    });
+                }
+
+                // Parse regular interconnections
+                data.InterConnect.forEach(conn => {
+                    const [from, to] = conn.split(':');
+                    const fromNode = from.split('_')[0];
+                    const toNode = to.split('_')[0];
+                    
+                    this.connections.push({
+                        from: fromNode,
+                        to: toNode,
+                        fromPort: from,
+                        toPort: to,
+                        type: 'regular'
+                    });
+                });
+
+                // Parse IXIA connections
+                if (data.Ixia_connections) {
+                    data.Ixia_connections.forEach(conn => {
+                        const [nodePort, ixiaPort] = conn.split(':');
+                        const nodeName = nodePort.split('_')[0];
+                        
+                        this.ixiaConnections.push({
+                            from: nodeName,
+                            to: 'IXIA',
+                            fromPort: nodePort,
+                            toPort: ixiaPort,
+                            type: 'ixia'
+                        });
+                    });
+                }
+
+                // Parse Bridge connections
+                if (data.Bridge_connections) {
+                    data.Bridge_connections.forEach(bridgeConn => {
+                        const parts = bridgeConn.split(':');
+                        const switchPort = parts[0];
+                        const switchName = switchPort.split('_')[0];
+                        
+                        // Create connection from switch to all bridges
+                        for (let i = 1; i < parts.length; i++) {
+                            const bridgePort = parts[i];
+                            const bridgeName = bridgePort.split('_')[0];
+                            
+                            this.bridgeConnections.push({
+                                from: switchName,
+                                to: bridgeName,
+                                fromPort: switchPort,
+                                toPort: bridgePort,
+                                type: 'bridge',
+                                bridgeGroup: bridgeConn
+                            });
+                        }
+                    });
+                }
+            }
+
+            getNodeType(name) {
+                if (name.startsWith('s')) return 'spine';
+                if (name.startsWith('l')) return 'leaf';
+                if (name.startsWith('h')) return 'host';
+                if (name.startsWith('b')) return 'bridge';
+                return 'unknown';
+            }
+
+            calculatePositions() {
+                const width = this.canvas.width;
+                const height = this.canvas.height;
+                const margin = 80;
+
+                // Separate nodes by type
+                const spines = Array.from(this.nodes.values()).filter(n => n.type === 'spine');
+                const leaves = Array.from(this.nodes.values()).filter(n => n.type === 'leaf');
+                const hosts = Array.from(this.nodes.values()).filter(n => n.type === 'host');
+                const bridges = Array.from(this.nodes.values()).filter(n => n.type === 'bridge');
+                const ixia = Array.from(this.nodes.values()).filter(n => n.type === 'ixia');
+
+                // Position spines at the top
+                spines.forEach((node, i) => {
+                    node.x = margin + (width - 2 * margin) / Math.max(1, spines.length - 1) * i;
+                    node.y = margin;
+                });
+
+                // Position leaves in the middle
+                leaves.forEach((node, i) => {
+                    node.x = margin + (width - 2 * margin) / Math.max(1, leaves.length - 1) * i;
+                    node.y = height * 0.35;
+                });
+
+                // Position hosts at the bottom
+                hosts.forEach((node, i) => {
+                    node.x = margin + (width - 2 * margin) / Math.max(1, hosts.length - 1) * i;
+                    node.y = height * 0.7;
+                });
+
+                // Position bridges at the very bottom
+                bridges.forEach((node, i) => {
+                    node.x = margin + (width - 2 * margin) / Math.max(1, bridges.length - 1) * i;
+                    node.y = height - margin;
+                });
+
+                // Position IXIA on the right side
+                ixia.forEach(node => {
+                    node.x = width - margin;
+                    node.y = height * 0.5;
+                });
+            }
+
+            buildPortConnectionMap() {
+                this.portConnections.clear();
+                
+                [...this.connections, ...this.ixiaConnections, ...this.bridgeConnections].forEach(conn => {
+                    // Map each port to its connected port and connection info
+                    this.portConnections.set(conn.fromPort, {
+                        connectedPort: conn.toPort,
+                        connectedNode: conn.to,
+                        connectionType: conn.type,
+                        connection: conn
+                    });
+                    
+                    this.portConnections.set(conn.toPort, {
+                        connectedPort: conn.fromPort,
+                        connectedNode: conn.from,
+                        connectionType: conn.type,
+                        connection: conn
+                    });
+                });
+            }
+
+            handleCanvasClick(event) {
+                const rect = this.canvas.getBoundingClientRect();
+                const x = event.clientX - rect.left;
+                const y = event.clientY - rect.top;
+                
+                // Check if click is on a port label
+                let clickedPort = null;
+                this.labelPositions.forEach((pos, port) => {
+                    const distance = Math.sqrt((x - pos.x) ** 2 + (y - pos.y) ** 2);
+                    if (distance <= 15) { // Within 15px of label center
+                        clickedPort = port;
+                    }
+                });
+                
+                if (clickedPort) {
+                    if (this.selectedPort === clickedPort) {
+                        // Deselect if same port clicked
+                        this.selectedPort = null;
+                        document.getElementById('connection-info').style.display = 'none';
+                    } else {
+                        // Select new port
+                        this.selectedPort = clickedPort;
+                        this.showConnectionInfo(clickedPort);
+                    }
+                    this.draw(); // Redraw to show/hide highlight
+                }
+            }
+
+            showConnectionInfo(port) {
+                const connection = this.portConnections.get(port);
+                if (connection) {
+                    const portNum = port.split('_')[1]?.replace('swp', '') || port.replace('swp', '');
+                    const connectedPortNum = connection.connectedPort.split('_')[1]?.replace('swp', '') || connection.connectedPort.replace('swp', '');
+                    const fromNode = port.split('_')[0];
+                    
+                    let connectionTypeText = '';
+                    if (connection.connectionType === 'ixia') {
+                        connectionTypeText = ' (IXIA Connection)';
+                    } else if (connection.connectionType === 'bridge') {
+                        connectionTypeText = ' (Bridge Connection)';
+                    }
+                    
+                    document.getElementById('connection-info').innerHTML = 
+                        `🔗 Port <strong>${portNum}</strong> on <strong>${fromNode}</strong> connects to Port <strong>${connectedPortNum}</strong> on <strong>${connection.connectedNode}</strong>${connectionTypeText}`;
+                    document.getElementById('connection-info').style.display = 'block';
+                } else {
+                    document.getElementById('connection-info').style.display = 'none';
+                }
+            }
+
+            draw() {
+                // Clear canvas
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+                // Draw connections first (so they appear behind nodes)
+                this.drawConnections();
+
+                // Draw nodes
+                this.nodes.forEach(node => this.drawNode(node));
+
+                // Draw port labels
+                this.drawPortLabels();
+            }
+
+            drawConnections() {
+                // Draw regular connections
+                [...this.connections, ...this.ixiaConnections, ...this.bridgeConnections].forEach(conn => {
+                    const fromNode = this.nodes.get(conn.from);
+                    const toNode = this.nodes.get(conn.to);
+                    
+                    if (fromNode && toNode) {
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(fromNode.x, fromNode.y);
+                        this.ctx.lineTo(toNode.x, toNode.y);
+                        
+                        if (conn.type === 'ixia') {
+                            this.ctx.strokeStyle = '#9B59B6';
+                            this.ctx.lineWidth = 2;
+                        } else if (conn.type === 'bridge') {
+                            this.ctx.strokeStyle = '#E74C3C';
+                            this.ctx.lineWidth = 3;
+                        } else {
+                            this.ctx.strokeStyle = '#333';
+                            this.ctx.lineWidth = 1;
+                        }
+                        
+                        this.ctx.stroke();
+                    }
+                });
+            }
+
+            drawNode(node) {
+                const colors = {
+                    'spine': '#4A90E2',
+                    'leaf': '#50C878',
+                    'host': '#FF6B6B',
+                    'bridge': '#FFD93D',
+                    'ixia': '#9B59B6'
+                };
+
+                // Make nodes taller to accommodate MAC address
+                const nodeWidth = 120;
+                const nodeHeight = 60;
+
+                // Draw node rectangle
+                this.ctx.fillStyle = colors[node.type] || '#888';
+                this.ctx.fillRect(node.x - nodeWidth/2, node.y - nodeHeight/2, nodeWidth, nodeHeight);
+
+                // Draw border
+                this.ctx.strokeStyle = '#333';
+                this.ctx.lineWidth = 2;
+                this.ctx.strokeRect(node.x - nodeWidth/2, node.y - nodeHeight/2, nodeWidth, nodeHeight);
+
+                // Draw node name (top part)
+                this.ctx.fillStyle = 'white';
+                this.ctx.font = 'bold 14px Arial';
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                this.ctx.fillText(node.name, node.x, node.y - 12);
+
+                // Draw MAC address (bottom part)
+                this.ctx.font = '10px Arial';
+                let macText = node.macAddress;
+                
+                // Truncate MAC address if too long
+                if (macText && macText.length > 18) {
+                    macText = macText.substring(0, 15) + '...';
+                }
+                
+                // Only show MAC if it's not empty or N/A
+                if (macText && macText !== 'N/A' && macText.trim() !== '') {
+                    this.ctx.fillText(macText, node.x, node.y + 12);
+                } else {
+                    this.ctx.fillStyle = '#ddd';
+                    this.ctx.fillText('No MAC', node.x, node.y + 12);
+                }
+            }
+
+            drawPortLabels() {
+                this.ctx.font = 'bold 8px Arial';
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                this.labelPositions.clear();
+
+                // Group connections by node to distribute labels around each node
+                const nodePortMap = new Map();
+                
+                // Collect all ports for each node
+                [...this.connections, ...this.ixiaConnections, ...this.bridgeConnections].forEach(conn => {
+                    // Add from port
+                    if (!nodePortMap.has(conn.from)) {
+                        nodePortMap.set(conn.from, []);
+                    }
+                    nodePortMap.get(conn.from).push({
+                        port: conn.fromPort,
+                        connection: conn,
+                        direction: 'from'
+                    });
+                    
+                    // Add to port
+                    if (!nodePortMap.has(conn.to)) {
+                        nodePortMap.set(conn.to, []);
+                    }
+                    nodePortMap.get(conn.to).push({
+                        port: conn.toPort,
+                        connection: conn,
+                        direction: 'to'
+                    });
+                });
+
+                // Draw labels for each node
+                nodePortMap.forEach((ports, nodeName) => {
+                    const node = this.nodes.get(nodeName);
+                    if (!node) return;
+
+                    const portCount = ports.length;
+                    const radius = 80; // Increased radius for larger nodes
+                    const nodeWidth = 120;
+                    const nodeHeight = 60;
+
+                    ports.forEach((portInfo, index) => {
+                        const angle = (index / portCount) * 2 * Math.PI - Math.PI / 2;
+                        
+                        let labelX = node.x + Math.cos(angle) * radius;
+                        let labelY = node.y + Math.sin(angle) * radius;
+                        
+                        const dx = labelX - node.x;
+                        const dy = labelY - node.y;
+                        
+                        if (Math.abs(dx) < nodeWidth/2 + 10 && Math.abs(dy) < nodeHeight/2 + 10) {
+                            const extraDistance = 25;
+                            labelX = node.x + Math.cos(angle) * (radius + extraDistance);
+                            labelY = node.y + Math.sin(angle) * (radius + extraDistance);
+                        }
+
+                        let portNum = portInfo.port.split('_')[1] || portInfo.port;
+                        portNum = portNum.replace('swp', '');
+
+                        // Store label position
+                        this.labelPositions.set(portInfo.port, { x: labelX, y: labelY, node: nodeName });
+
+                        // Highlight selected port and its connected port
+                        let isHighlighted = false;
+                        if (this.selectedPort === portInfo.port) {
+                            isHighlighted = true;
+                        } else if (this.selectedPort && this.portConnections.has(this.selectedPort)) {
+                            const selectedConnection = this.portConnections.get(this.selectedPort);
+                            if (selectedConnection.connectedPort === portInfo.port) {
+                                isHighlighted = true;
+                            }
+                        }
+
+                        // Draw background rectangle with highlight
+                        if (isHighlighted) {
+                            this.ctx.fillStyle = '#ffeb3b';
+                            this.ctx.strokeStyle = '#f57c00';
+                            this.ctx.lineWidth = 2;
+                        } else {
+                            this.ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+                            this.ctx.strokeStyle = '#999';
+                            this.ctx.lineWidth = 0.5;
+                        }
+                        
+                        const portWidth = Math.max(this.ctx.measureText(portNum).width + 8, 18);
+                        this.ctx.fillRect(labelX - portWidth/2, labelY - 8, portWidth, 16);
+                        this.ctx.strokeRect(labelX - portWidth/2, labelY - 8, portWidth, 16);
+                        
+                        // Draw port number
+                        this.ctx.fillStyle = isHighlighted ? '#d84315' : '#000';
+                        this.ctx.font = isHighlighted ? 'bold 9px Arial' : 'bold 8px Arial';
+                        this.ctx.fillText(portNum, labelX, labelY);
+                        this.ctx.font = 'bold 8px Arial'; // Reset font
+                        
+                        // Draw connection line from node edge to label
+                        this.ctx.strokeStyle = isHighlighted ? '#ff9800' : 
+                                             (portInfo.connection.type === 'ixia' ? '#9B59B6' : 
+                                              portInfo.connection.type === 'bridge' ? '#E74C3C' : '#ccc');
+                        this.ctx.lineWidth = isHighlighted ? 2 : 1;
+                        this.ctx.setLineDash(isHighlighted ? [] : [1, 2]);
+                        
+                        const edgeX = node.x + Math.cos(angle) * (nodeWidth/2);
+                        const edgeY = node.y + Math.sin(angle) * (nodeHeight/2);
+                        
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(edgeX, edgeY);
+                        this.ctx.lineTo(labelX, labelY);
+                        this.ctx.stroke();
+                        this.ctx.setLineDash([]);
+                    });
+                });
+
+                // Draw connection line between selected port and its connected port
+                if (this.selectedPort && this.portConnections.has(this.selectedPort)) {
+                    const connection = this.portConnections.get(this.selectedPort);
+                    const fromPos = this.labelPositions.get(this.selectedPort);
+                    const toPos = this.labelPositions.get(connection.connectedPort);
+                    
+                    if (fromPos && toPos) {
+                        this.ctx.strokeStyle = connection.connectionType === 'ixia' ? '#9B59B6' : 
+                                             connection.connectionType === 'bridge' ? '#E74C3C' : '#2196f3';
+                        this.ctx.lineWidth = 3;
+                        this.ctx.setLineDash([5, 5]);
+                        
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(fromPos.x, fromPos.y);
+                        this.ctx.lineTo(toPos.x, toPos.y);
+                        this.ctx.stroke();
+                        this.ctx.setLineDash([]);
+                    }
+                }
+            }
+        }
+
+        const topologyGen = new TopologyGenerator();
+
+        function generateTopology() {
+            const jsonInput = document.getElementById('json-input').value;
+            
+            if (!jsonInput.trim()) {
+                document.getElementById('error-message').innerHTML = 
+                    '<div class="error">Please enter a JSON configuration</div>';
+                return;
+            }
+
+            try {
+                const data = JSON.parse(jsonInput);
+                topologyGen.generateTopology(data);
+            } catch (error) {
+                document.getElementById('error-message').innerHTML = 
+                    `<div class="error">Invalid JSON: ${error.message}</div>`;
+            }
+        }
+
+        function downloadTopology() {
+            const canvas = document.getElementById('topology-canvas');
+            
+            // Create a temporary canvas with white background
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCanvas.width = canvas.width;
+            tempCanvas.height = canvas.height;
+            
+            // Fill with white background
+            tempCtx.fillStyle = 'white';
+            tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+            
+            // Draw the topology on top
+            tempCtx.drawImage(canvas, 0, 0);
+            
+            // Add title and timestamp
+            tempCtx.fillStyle = '#333';
+            tempCtx.font = 'bold 16px Arial';
+            tempCtx.textAlign = 'left';
+            tempCtx.fillText('vm_image', 20, 30);
+            
+            tempCtx.font = '12px Arial';
+            tempCtx.fillStyle = '#666';
+            const currentDate = topologyGen.generationTime || new Date();
+            tempCtx.fillText(`Generated on: ${currentDate.toLocaleString()}`, 20, 50);
+            
+            // Create filename with generation time
+            const timeStr = currentDate.toISOString().slice(0, 19).replace(/[:.]/g, '-');
+            const filename = `vm_image_${timeStr}.png`;
+            
+            // Create download link
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = tempCanvas.toDataURL('image/png');
+            
+            // Trigger download
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            // Show success message
+            const originalText = document.getElementById('download-btn').innerHTML;
+            document.getElementById('download-btn').innerHTML = '✅ Downloaded!';
+            document.getElementById('download-btn').style.background = '#6c757d';
+            
+            setTimeout(() => {
+                document.getElementById('download-btn').innerHTML = originalText;
+                document.getElementById('download-btn').style.background = '#28a745';
+            }, 2000);
+        }
+
+        // Load example data on page load
+        window.addEventListener('load', function() {
+            const exampleData = {
+                "VM_IMAGE": "arcos", 
+                "SpyderWaitTimer": 200,
+                "VMs": [
+                    {"name": "s1", "mac_address": ""},
+                    {"name": "s2", "mac_address": ""},
+                    {"name": "l1", "mac_address": ""},
+                    {"name": "l2", "mac_address": ""},
+                    {"name": "l3", "mac_address": ""},
+                    {"name": "h1", "mac_address": ""},
+                    {"name": "h2", "mac_address": ""},
+                    {"name": "h3", "mac_address": ""},
+                    {"name": "h4", "mac_address": ""},
+                    {"name": "b1", "mac_address": ""},
+                    {"name": "b2", "mac_address": ""},
+                    {"name": "b3", "mac_address": ""},
+                    {"name": "b4", "mac_address": ""}
+                ],
+                "InterConnect": [
+                    "s1_swp1:l1_swp1", "s1_swp4:l1_swp4", "s1_swp2:l2_swp1",
+                    "s1_swp5:l2_swp5", "s1_swp3:l3_swp1", "s1_swp6:l3_swp4",
+                    "s2_swp1:l1_swp2", "s2_swp4:l1_swp5", "s2_swp2:l2_swp2",
+                    "s2_swp5:l2_swp6", "s2_swp9:l2_swp11", "s2_swp10:l2_swp12",
+                    "s2_swp3:l3_swp2", "s2_swp6:l3_swp5", "s2_swp11:l3_swp7",
+                    "s1_swp7:s2_swp7", "s1_swp8:s2_swp8", "l1_swp7:l2_swp7",
+                    "l1_swp8:l2_swp8", "l1_swp9:l2_swp9", "l1_swp10:l2_swp10",
+                    "l2_swp3:l3_swp3", "l1_swp3:h1_swp1", "l1_swp6:h1_swp2",
+                    "l2_swp4:h2_swp1", "l3_swp6:h3_swp1", "l1_swp11:h2_swp2",
+                    "h1_swp3:h2_swp3", "l2_swp13:h3_swp2", "h3_swp3:h4_swp1",
+                    "h3_swp4:h4_swp2", "h3_swp5:h4_swp3", "h1_swp4:s2_swp13",
+                    "h2_swp4:s2_swp14", "h1_swp5:h2_swp5", "h2_swp7:s1_swp10",
+                    "h2_swp6:h3_swp6", "h1_swp6:h3_swp7", "l1_swp12:h1_swp10",
+                    "l1_swp13:h1_swp7", "h1_swp8:s2_swp15", "h1_swp9:s2_swp16",
+                    "l1_swp14:h2_swp11", "l1_swp15:h2_swp8", "h2_swp9:s2_swp17",
+                    "h2_swp10:s2_swp18"
+                ],
+                "Ixia_connections": [
+                    "s1_swp9:ens2f0", "s2_swp12:ens2f1", "s1_swp11:ens2f2"
+                ],
+                "Bridge_connections": [
+                    "s2_swp19:b1_swp1:b2_swp1:b3_swp1:b4_swp1"
+                ]
+            };
+            
+            document.getElementById('json-input').value = JSON.stringify(exampleData, null, 2);
+            generateTopology();
+        });
+    </script>
+</body>
+</html>
